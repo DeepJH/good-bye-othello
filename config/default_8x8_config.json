@@ -1,0 +1,9 @@
+{
+  "top_left": [40, 600],
+  "bottom_right": [1040, 1600],
+  "rows": 8,
+  "cols": 8,
+  "black_threshold": 70,
+  "white_threshold": 180,
+  "sample_ratio": 0.5
+}

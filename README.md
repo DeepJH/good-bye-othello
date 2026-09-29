@@ -2,21 +2,45 @@
 
 将强大的黑白棋（Othello / Reversi）AlphaZero AI 应用到实战中。
 
-本项目集成了基于蒙特卡洛树搜索（MCTS）与深度卷积神经网络（PyTorch）的 AlphaZero 引擎，并内置预训练好的 6x6 与 8x8 黑白棋高水平模型权重，可直接用于对弈与后续实战系统开发。
+本项目包含两个核心子系统：
+1. **AlphaZero 核心引擎**：基于深度卷积神经网络（PyTorch）与蒙特卡洛树搜索（MCTS）的高水平黑白棋 AI，内置官方 6x6 与 8x8 预训练模型。
+2. **多端自动化控制架构 (`othello_agent`)**：采用**双向解耦适配器（Adapter）**架构，将 AI 决策、纯视觉棋盘识别（Vision）、被控端交互（ADB / Mock / Web）彻底分离，支持通过 Android ADB 自动化操控任意黑白棋 App 进行实战对弈。
 
 ---
 
-## 运行配置需求与资源消耗
+## 总体系统架构
 
-本项目在**普通个人电脑、轻量云服务器或嵌入式设备（如树莓派 4B/5）**上均可流畅运行推理：
+系统采用高内聚、低耦合的标准转化层设计：
 
-| 硬件维度 | 最低配置要求 | 推荐配置 | 实测运行时开销 |
-| :--- | :--- | :--- | :--- |
-| **处理器 (CPU)** | 64位 双核 CPU (x86_64 / ARM64) | 4核以上主流处理器 | 单局推理单核占用，单步耗时约 0.05 ~ 0.2 秒 |
-| **显卡 (GPU)** | **无需独立显卡**（纯 CPU 即可运行） | 支持 CUDA 的 NVIDIA 显卡（可选加速） | 默认纯 CPU 模式运行极快 |
-| **内存 (RAM)** | 至少 **1 GB** 空闲可用内存 | 2 GB 以上 | **实测峰值内存（RSS）仅约 300 MB ~ 350 MB** |
-| **磁盘空间** | **1 GB** 可用空间 | 2 GB 可用空间 | 模型权重约 100 MB，CPU 版虚拟环境约 500 MB |
-| **软件环境** | Python 3.8 ~ 3.12，Linux / macOS / Windows | Python 3.12 (推荐搭配 uv) | 依赖仅为 `torch`、`numpy`、`tqdm` |
+```text
+┌────────────────────────────────────────────────────────┐
+│                   Game Orchestrator                    │
+│           （调度中枢：协调感知、决策、轮次与执行）             │
+└───────────┬────────────────────────────────┬───────────┘
+            │                                │
+    标准棋盘状态 (BoardState)           标准动作 Action (row, col)
+            │                                │
+            ▼                                ▼
+┌───────────────────────┐        ┌───────────────────────┐
+│     Model Adapter     │        │  Controller Adapter   │
+│   （模型输入输出转化层）  │        │    （被控端执行转化层）   │
+│ 包装 AlphaZero/MCTS   │        │ 包装 ADB / Web / PC   │
+└───────────────────────┘        └───────────┬───────────┘
+                                             │
+                                   获取屏幕图像 / 发送物理点击
+                                             │
+                                             ▼
+                                 ┌───────────────────────┐
+                                 │     Vision Module     │
+                                 │   （通用可复用棋盘视觉）  │
+                                 │ 图像 -> 标准 BoardState│
+                                 └───────────────────────┘
+```
+
+- **标准数据协议 (`othello_agent/protocols.py`)**：统一标准 `BoardState`、`Player`、`CellState`、`GridGeometry`。
+- **模型转化层 (`othello_agent/model_adapter.py`)**：负责自动视角色彩反转（白棋转为标准视角）、合法步过滤、MCTS 策略概率推理与动作解码。
+- **可复用视觉识别 (`othello_agent/vision/`)**：纯算法模块，不绑定 ADB。接收图像与棋盘区域配置（ROI），毫秒级提取 8x8 棋盘状态并计算每个格子的物理中心点坐标。
+- **被控端抽象 (`othello_agent/controllers/`)**：定义统一控制协议，包含 `AdbController`（安卓高速截屏与模拟点击）和 `MockController`（离线单元测试）。
 
 ---
 
@@ -24,25 +48,34 @@
 
 ```text
 good-bye-othello/
-├── alpha-zero-general/          # AlphaZero 核心算法与黑白棋引擎模块
-│   ├── Arena.py                 # 对弈竞技场调度逻辑
-│   ├── Game.py                  # 棋类环境基类规范
-│   ├── MCTS.py                  # 蒙特卡洛树搜索核心实现
-│   ├── NeuralNet.py             # 神经网络基类定义
-│   ├── utils.py                 # 工具函数与字典结构
-│   ├── othello/                 # 黑白棋游戏逻辑与 PyTorch 网络
-│   │   ├── OthelloGame.py       # 棋盘规则、有效步判定与胜负结算
-│   │   ├── OthelloLogic.py      # 黑白棋底层走子翻子算法
-│   │   ├── OthelloPlayers.py    # 玩家策略（Random, Greedy, Human）
-│   │   └── pytorch/             # OthelloNNet 卷积网络与包装器
-│   └── pretrained_models/       # 预训练模型权重
-│       └── othello/pytorch/
-│           ├── 6x100x25_best.pth.tar       (6x6 模型，约 38MB)
-│           └── 8x8_100checkpoints_best.pth.tar (8x8 模型，约 62MB)
-├── play.py                      # 统一对弈与演示入口（支持人机、机机、单局与循环赛）
-├── test_alpha_zero.py           # 自动化测试与模型走子验证脚本
-├── requirements.txt             # 项目依赖清单
-├── LICENSE                      # 开源许可证（含原作者 MIT 许可保留）
+├── othello_agent/               # 外挂自动化核心架构包
+│   ├── protocols.py             # 核心数据模型与标准接口定义
+│   ├── model_adapter.py         # AlphaZero 模型的标准接口转化层
+│   ├── orchestrator.py          # 调度中枢（感知 -> 推断 -> 决策 -> 点击循环）
+│   ├── vision/                  # 通用可复用视觉模块
+│   │   ├── calibration.py       # 棋盘 ROI 标定与配置存取
+│   │   └── recognizer.py        # 图像色彩空间采样与棋盘矩阵识别
+│   └── controllers/             # 被控端转化层
+│       ├── base.py              # 控制器抽象基类
+│       ├── mock.py              # 离线虚拟控制器
+│       └── adb.py               # 安卓原生 ADB 控制器
+├── alpha-zero-general/          # AlphaZero 核心算法与预训练权重
+│   ├── Arena.py                 # 对弈调度
+│   ├── Game.py                  # 游戏基类
+│   ├── MCTS.py                  # MCTS 核心实现
+│   ├── NeuralNet.py             # 神经网络基类
+│   ├── utils.py                 # 基础工具
+│   ├── othello/                 # 游戏规则与 PyTorch 卷积网络
+│   └── pretrained_models/       # 预训练模型 (6x6 与 8x8)
+├── config/                      # 标定配置文件目录
+│   └── default_8x8_config.json  # 默认 8x8 屏幕配置示例
+├── calibrate.py                 # 一键截屏标定工具（生成视觉覆盖预览图）
+├── run_bot.py                   # ADB 自动对弈外挂主入口
+├── play.py                      # 本地终端对弈与自对弈演示入口
+├── test_alpha_zero.py           # AlphaZero 引擎基础测试
+├── tests/                       # 自动化测试套件（100% 覆盖）
+├── requirements.txt             # 依赖声明
+├── LICENSE                      # 开源许可证（保留原作者 MIT 版权）
 └── README.md                    # 本说明文件
 ```
 
@@ -52,43 +85,69 @@ good-bye-othello/
 
 ### 1. 依赖安装
 
-推荐使用 `uv` 创建轻量 Python 3.12 环境（也可使用普通 `venv`）：
+推荐使用 `uv` 创建 Python 3.12 环境：
 
 ```bash
-# 使用 uv 创建虚拟环境并安装依赖
 uv venv --python 3.12 .venv
 source .venv/bin/activate
 uv pip install -r requirements.txt
 ```
 
-> **提示**：如果使用 pip 直接安装且无需 GPU，可安装 CPU 版 PyTorch 以大幅节省下载体积与磁盘占用：
-> ```bash
-> pip install torch --index-url https://download.pytorch.org/whl/cpu
-> pip install numpy tqdm
-> ```
+### 2. 运行自动化测试（14 项测试全绿）
 
-### 2. 运行预训练模型对弈
-
-#### 快速自对弈演示（默认 8x8 棋盘，AI vs 随机对手）：
 ```bash
-python play.py --board-size 8 --sims 25
+.venv/bin/pytest -v
 ```
 
-#### 快速验证 6x6 棋盘：
-```bash
-python play.py --board-size 6 --sims 15
-```
+---
 
-#### 亲自与 AI 对战（人机交互模式）：
+## 安卓 ADB 自动化控制实战指南
+
+### 步骤 1：连接安卓手机或模拟器
+
+确保安卓设备开启了“USB 调试”，并通过数据线连接电脑（或启动雷电、MuMu、Android Studio 模拟器）：
+
 ```bash
+adb devices
+```
+终端显示设备序列号即说明连接成功。
+
+### 步骤 2：对目标 App 进行一键棋盘标定
+
+打开小众黑白棋 App 进入对局界面，运行标定脚本截屏：
+
+```bash
+python calibrate.py --capture app_screen.png
+```
+脚本会自动在当前目录下保存 `app_screen.png`。如果您知道棋盘坐标范围（左,上,右,下），可直接传入；如果不传则默认居中：
+
+```bash
+# 示例：指定棋盘左上角 (40, 600) 到右下角 (1040, 1600)
+python calibrate.py --image app_screen.png --roi 40,600,1040,1600 --save config/my_app.json
+```
+标定工具会生成 `config/calibration_preview.png`，打开该图片即可直观看到棋盘边界红框与每个格子的青色采样点击中心点是否对齐。
+
+### 步骤 3：启动 AI 外挂自动下棋
+
+```bash
+python run_bot.py --config config/my_app.json --sims 25
+```
+- `--color auto`（默认）：AI 自动根据盘面棋子总数的奇偶性推断轮次与阵营；也可以显式指定 `--color black` 或 `--color white`。
+- `--sims`：每步 MCTS 模拟次数（默认 25，步耗时仅约 0.2 秒）。
+- 外挂将全自动检测屏幕、等待对手走棋、在轮到我方时毫秒级计算最优步并发送触控点击！
+
+---
+
+## 本地交互与预训练模型验证
+
+如果不连接手机，也可以直接在终端与预训练模型下棋：
+
+```bash
+# 终端人机对弈（玩家输入坐标与 AI 对战）
 python play.py --board-size 8 --player1 human --player2 alpha
-```
-在控制台中，根据提示输入坐标（例如 `2 3`）即可落子。
 
-### 3. 运行自动化验证测试
-
-```bash
-python test_alpha_zero.py
+# 本地自动对弈演示（AI vs 随机对手）
+python play.py --board-size 8 --sims 25
 ```
 
 ---
@@ -105,9 +164,9 @@ python test_alpha_zero.py
 本项目底层算法与预训练模型源自开源社区与先驱学者的杰出成果，特别向以下项目与研究者致以诚挚的感谢：
 
 1. **上游开源项目**：
-   - 感谢 [suragnair/alpha-zero-general](https://github.com/suragnair/alpha-zero-general) 提供的清晰、优雅且模块化的通用 AlphaZero 算法实现与预训练权重。
+   - 感谢 [suragnair/alpha-zero-general](https://github.com/suragnair/alpha-zero-general) 提供的通用 AlphaZero 算法实现与预训练权重。
 2. **核心贡献者团队**：
-   - 感谢原作者 **Surag Nair**，以及核心作者 **Shantanu Thakoor** 和 **Megha Jhunjhunwala** 的算法设计与训练工作。
+   - 感谢原作者 **Surag Nair**，以及核心作者 **Shantanu Thakoor** 和 **Megha Jhunjhunwala**。
 3. **学术报告引用**：
    ```bibtex
    @misc{thakoor2016learning,
@@ -118,5 +177,4 @@ python test_alpha_zero.py
    }
    ```
 4. **理论奠基**：
-   - 致敬 DeepMind 团队关于 AlphaGo Zero 的里程碑论文：
-     *Silver, D., Schrittwieser, J., Simonyan, K. et al. Mastering the game of Go without human knowledge. Nature 550, 354–359 (2017).*
+   - 致敬 DeepMind 团队关于 AlphaGo Zero 的里程碑论文（Silver et al., Nature 2017）。
