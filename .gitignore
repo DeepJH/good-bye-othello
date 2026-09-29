@@ -4,3 +4,7 @@ __pycache__/
 *.pyo
 .pytest_cache/
 .tmp/
+*.png
+*.jpg
+*.jpeg
+*.webp

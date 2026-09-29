@@ -2,4 +2,3 @@ torch>=2.0.0
 numpy>=1.24.0
 tqdm>=4.64.0
 pillow>=10.0.0
-pytest>=8.0.0

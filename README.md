@@ -72,8 +72,6 @@ good-bye-othello/
 ├── calibrate.py                 # 一键截屏标定工具（生成视觉覆盖预览图）
 ├── run_bot.py                   # ADB 自动对弈外挂主入口
 ├── play.py                      # 本地终端对弈与自对弈演示入口
-├── test_alpha_zero.py           # AlphaZero 引擎基础测试
-├── tests/                       # 自动化测试套件（100% 覆盖）
 ├── requirements.txt             # 依赖声明
 ├── LICENSE                      # 开源许可证（保留原作者 MIT 版权）
 └── README.md                    # 本说明文件
@@ -93,11 +91,6 @@ source .venv/bin/activate
 uv pip install -r requirements.txt
 ```
 
-### 2. 运行自动化测试（14 项测试全绿）
-
-```bash
-.venv/bin/pytest -v
-```
 
 ---
 
